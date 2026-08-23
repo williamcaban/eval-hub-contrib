@@ -83,7 +83,7 @@ def _score_one_choice(
                     cont_sum += lp
                     found = True
         return cont_sum if found else float("-inf")
-    except (urllib.error.URLError, KeyError, json.JSONDecodeError) as exc:
+    except (OSError, IndexError, KeyError, json.JSONDecodeError) as exc:
         logger.warning("loglikelihood fallback (echo failed for choice %r): %s", choice[:40], exc)
         return float("-inf")
 

@@ -578,49 +578,37 @@ def test_run_lighteval_cmd_formats_generation_parameters(adapter, tmp_path, monk
 # ── L1 fix: max_samples parameter forwarding ──────────────────────────────────
 
 @pytest.mark.integration
-def test_max_samples_from_parameters_forwarded(adapter, monkeypatch, tmp_path):
+def test_max_samples_from_parameters_forwarded(adapter, mock_callbacks, monkeypatch):
     """parameters['max_samples'] is forwarded as --max-samples when num_examples is None.
 
     Regression test for the bug where config.num_examples was None when callers
     passed max_samples in benchmark parameters instead of the top-level field,
     causing --max-samples to never be emitted.
+
+    Calls run_benchmark_job so the adapter's own limit-selection path
+    (config.num_examples or config.parameters.get("max_samples")) is exercised,
+    not computed manually in the test.
     """
     captured: dict = {}
 
-    def fake_run(cmd, **kw):
-        captured["cmd"] = cmd
-        # Return enough structure for the caller to find a results file
-        results_dir = tmp_path / "results"
-        results_dir.mkdir(parents=True, exist_ok=True)
-        (results_dir / "results_dummy.json").write_text(
-            '{"results": {"gsm8k|0": {"extractive_match": 0.8}}, "config_general": {}, "config_tasks": {}}'
-        )
-        import subprocess
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+    def fake_run_lighteval(**kwargs):
+        captured["limit"] = kwargs.get("limit")
+        return {"results": {"gsm8k|0": {"extractive_match": 0.8}}, "config_general": {"max_samples": 5}, "config_tasks": {}}
 
-    monkeypatch.setattr("subprocess.run", fake_run)
-    monkeypatch.setattr(
-        "main.resolve_model_credentials",
-        lambda: SimpleNamespace(api_key=None),
+    # Ensure num_examples is absent so the fallback path is taken
+    assert adapter.job_spec.num_examples is None, (
+        "This test requires num_examples to be None in the job spec"
+    )
+    assert adapter.job_spec.parameters.get("max_samples") == 5, (
+        "This test requires parameters['max_samples'] == 5 in the job spec"
     )
 
-    # num_examples is NOT set; max_samples comes from parameters
-    adapter._run_lighteval(
-        model_config=adapter.job_spec.model,
-        tasks=["gsm8k"],
-        output_dir=tmp_path,
-        num_fewshot=0,
-        limit=adapter.job_spec.num_examples or adapter.job_spec.parameters.get("max_samples"),
-        batch_size=1,
-        benchmark_config=adapter.job_spec.parameters,
-    )
+    monkeypatch.setattr(adapter, "_run_lighteval", fake_run_lighteval)
 
-    assert "--max-samples" in captured["cmd"], (
-        "--max-samples must appear in the lighteval CLI when max_samples is in parameters"
-    )
-    idx = captured["cmd"].index("--max-samples")
-    assert captured["cmd"][idx + 1] == "5", (
-        f"Expected --max-samples 5, got {captured['cmd'][idx + 1]}"
+    adapter.run_benchmark_job(adapter.job_spec, mock_callbacks)
+
+    assert captured.get("limit") == 5, (
+        f"Expected _run_lighteval to receive limit=5, got {captured.get('limit')!r}"
     )
 
 
@@ -988,4 +976,85 @@ def test_loglikelihood_patch_wrong_argmax(monkeypatch):
     # argmax chose "green" (idx 1); gold is "blue" (idx 0) → [False]
     assert resp.argmax_logits_eq_gold == [False], (
         f"Expected [False], got {resp.argmax_logits_eq_gold}"
+    )
+
+
+def test_loglikelihood_patch_empty_choices_returns_inf(monkeypatch):
+    """An empty choices array (IndexError on data["choices"][0]) returns -inf.
+
+    Regression for the missing IndexError in the fallback handler.
+    """
+    import urllib.request as _urllib_request
+    import sys as _sys
+    from types import SimpleNamespace
+
+    _loglikelihood_via_completions = _load_patch_fn()
+
+    class FakeModelResponse:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    stub_mr = MagicMock()
+    stub_mr.ModelResponse = FakeModelResponse
+    monkeypatch.setitem(_sys.modules, "lighteval.models.model_output", stub_mr)
+
+    doc = SimpleNamespace(query="Q: ", choices=["yes", "no"], gold_index=0)
+
+    def fake_urlopen_empty_choices(req, timeout=60):
+        # Server returns choices: [] — accessing [0] raises IndexError
+        return _FakeHTTPResponse(json.dumps({"choices": []}).encode())
+
+    monkeypatch.setattr(_urllib_request, "urlopen", fake_urlopen_empty_choices)
+
+    fake_self = SimpleNamespace(
+        base_url="http://fake-vllm:8000/v1",
+        model_name="test-model",
+        api_key="dummy",
+    )
+
+    responses = _loglikelihood_via_completions(fake_self, [doc])
+    resp = responses[0]
+
+    assert all(lp == float("-inf") for lp in resp.logprobs), (
+        f"Expected -inf for all choices on empty server response, got {resp.logprobs}"
+    )
+
+
+def test_loglikelihood_patch_socket_timeout_returns_inf(monkeypatch):
+    """A socket timeout (OSError subclass) from urlopen returns -inf.
+
+    Regression for the missing OSError in the fallback handler.
+    """
+    import urllib.request as _urllib_request
+    import sys as _sys
+    from types import SimpleNamespace
+
+    _loglikelihood_via_completions = _load_patch_fn()
+
+    class FakeModelResponse:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    stub_mr = MagicMock()
+    stub_mr.ModelResponse = FakeModelResponse
+    monkeypatch.setitem(_sys.modules, "lighteval.models.model_output", stub_mr)
+
+    doc = SimpleNamespace(query="Q: ", choices=["yes", "no"], gold_index=0)
+
+    def fake_urlopen_timeout(req, timeout=60):
+        raise TimeoutError("connection timed out")
+
+    monkeypatch.setattr(_urllib_request, "urlopen", fake_urlopen_timeout)
+
+    fake_self = SimpleNamespace(
+        base_url="http://fake-vllm:8000/v1",
+        model_name="test-model",
+        api_key="dummy",
+    )
+
+    responses = _loglikelihood_via_completions(fake_self, [doc])
+    resp = responses[0]
+
+    assert all(lp == float("-inf") for lp in resp.logprobs), (
+        f"Expected -inf for all choices on timeout, got {resp.logprobs}"
     )

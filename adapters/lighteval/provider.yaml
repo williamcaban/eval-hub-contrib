@@ -409,7 +409,7 @@ benchmarks:
   # ── Safety / Truthfulness ─────────────────────────────────────────────────
   - id: truthfulness
     name: Honesty & hallucination suite
-    description: Truthfulness suite covering TruthfulQA MC and generative variants.
+    description: Truthfulness suite covering TruthfulQA multiple-choice variants (MC1, MC2).
     category: safety
     metrics: [truthfulqa_mc1, truthfulqa_mc2]
     tags: [safety, truthfulness, hallucination, lighteval]
@@ -433,16 +433,3 @@ benchmarks:
     pass_criteria:
       threshold: 0.5
 
-  - id: truthfulqa:generation
-    name: TruthfulQA — Generative
-    description: >
-      TruthfulQA generative variant — model generates free-form answers scored
-      against truthful and informative reference answers.
-    category: safety
-    metrics: [bleurt_max, rouge1_max]
-    tags: [safety, truthfulness, lighteval]
-    primary_score:
-      metric: bleurt_max
-      lower_is_better: false
-    pass_criteria:
-      threshold: 0.3
