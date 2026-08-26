@@ -12,6 +12,7 @@ This directory contains pre-defined evaluation collections that group related be
 |----|------|----------|------------|---------------|
 | [`korean-comprehensive-eval`](korean-comprehensive-eval.yaml) | Korean Comprehensive Evaluation | `language-korean` | `kmmlu_direct_law`, `kobest_wic`, `arc_easy` | 0.50 |
 | [`kmmlu-fewshot-comparison`](kmmlu-fewshot-comparison.yaml) | KMMLU Law — Few-Shot Comparison | `language-korean` | `kmmlu_direct_law` (5-shot) | 0.45 |
+| [`knowledge-reasoning-v1`](knowledge-reasoning-v1.yaml) | Knowledge & Reasoning v1 | `knowledge` | `mmlu_cot_llama`, `leaderboard_mmlu_pro`, `leaderboard_bbh`, `leaderboard_musr`, `leaderboard_gpqa`, `truthfulqa_mc1`, `inspect/simpleqa`⚠️, `inspect/winogrande`⚠️, `inspect/hellaswag`⚠️, `inspect/arc`⚠️ | 0.55 |
 
 ## Contributing
 
